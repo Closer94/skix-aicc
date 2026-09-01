@@ -1,0 +1,323 @@
+spring:
+  datasource:
+    url: jdbc:mariadb://10.177.6.246:12306/dnlrcai?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Seoul
+    username: DNLRC_AI      # 실제 계정
+    password: DNLRC_AI123#  # 실제 비번
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20          # 여유 있으면 20~30
+      minimum-idle: 5
+      connection-timeout: 30000
+      validation-timeout: 3000
+      idle-timeout: 600000           # 10분
+      max-lifetime: 1800000          # 30분 (★ 핵심)
+      keep-alive-time: 300000              # 보통 끄는 쪽 권장(필요 시만)
+      leak-detection-threshold: 60000 # 60초 (커넥션 leak 추적)
+      connection-test-query: SELECT 1
+
+logging:
+  level:
+    root: INFO
+
+# 외부판례
+precedent:
+  external-dir: /nasdata/ai/search/index_preprocess/externalPrecedent
+
+# OCR, Doc-Parser API 호출 URL 정의
+nlrc:
+  auth:
+    bearer-token: lwf-0955da42a19644ddb0fb2278ad879c5b
+  ocr:
+    #url: http://10.177.6.245:8051/api/flow/nlrc-api-ocr
+    url: http://10.177.33.148:28000/jobs
+    callback-url: http://10.177.6.245:18282/documents/nlrc-api-ocr-callback
+  doc-parser:
+    #url: http://10.177.6.245:8051/api/flow/nlrc-api-doc-parser
+    url: http://10.177.33.148:29000/jobs
+    callback-url: http://10.177.6.245:18282/documents/nlrc-api-doc-parser-callback
+  stcn:
+    # STCN 판결문 PDF가 Non-Readable 인 경우 OCR 호출 여부
+    # true : 기존과 동일하게 OCR 호출 / false : OCR 호출하지 않고 U2C 상태로 보류
+    non-readable-pdf-ocr-enabled: false
+  anonymization:
+    url: http://10.177.6.245:8051/api/flow/nlrc-api-text-anonymization
+    enabled: true
+    timeout-ms: 1800000
+    target-doc-ty-cds: [ "IV", "DC", "JG" ]
+    connect-timeout-ms: 3000
+    read-timeout-ms: 1800000   # 예: 2분
+    # retry/backoff
+    retry-max-attempts: 3
+    retry-backoff-initial-ms: 1000
+    retry-backoff-max-ms: 10000
+    request-delay-ms: 500   # 0.5초 (페이싱 : 비식별화 API 보낼 때 속도 조절)
+  anonymization-detect:
+    url: http://10.177.6.245:8051/api/flow/nlrc-api-text-anonymization-is-detected
+    timeout-ms: 30000
+  doc-file-anonymization:
+    enabled: true
+    url: http://10.177.6.245:8051/api/flow/nlrc-api-doc-anonymization
+    callback-url: http://10.177.6.245:18282/documents/nlrc-api-doc-anonymization-callback
+    masked-base-path: /nasdata/ai/search/masked_documents
+    timeout-ms: 600000
+
+# OCR, Doc-Parser 결과를 저장하는 폴더 접근
+preprocess:
+  mount:
+    # H100 서버에서 실제 파일이 존재하는 기준 경로 (API request에 사용)
+    remote-base: /nasdata/ai/search/index_preprocess
+    # 106 서버에서 H100 remote-base를 마운트한 로컬 경로 (파일 read에 사용)
+    local-base: /nasdata/ai/search/index_preprocess
+
+    # 문서유형별 하위 폴더명(상대경로)만 관리 (remote/local 공통)
+  decision:
+    output-subdir: output_decision
+  investigation:
+    output-subdir: output_investigation
+  judgment:
+    output-subdir: output_judgment
+  externalPrecedent:
+    output-subdir: output_externalPrecedent
+  others:
+    output-subdir: output_others
+    # 운영에서 그외문서의 경우 전처리 완료 문서를 target-dir 에 cp 함
+    original-file-copy:
+      enabled: true
+      target-dir: /nasdata/ai/search/index_preprocess/others
+      # ALL: 전체 파일 복사 / pdf: PDF만 복사 / pdf, hwpx: PDF와 HWPX만 복사
+      file-types: pdf
+
+postprocess:
+  # html 내 이미지 비식별화 처리 여부
+  # Y: 기존 방식 - Parser 이미지 OCR/비식별화 검출 수행 후 개인정보 포함 이미지만 마스킹
+  # N: JGM(조사보고서/판정서) Parser 이미지를 검출 결과와 무관하게 전부 마스킹
+  html-image-anonymization-enabled: N
+
+  # html 내 이미지 비식별화 처리 개수
+  # ALL: 모든 Parser 이미지를 이미지 OCR/비식별화 검출 대상으로 처리
+  # 숫자: 앞에서부터 해당 개수만 이미지 OCR/비식별화 검출 대상으로 처리하고 나머지는 마스킹
+  html-image-anonymization-limit: 0
+
+  # Doc-Parser 결과물 생성 지연 대비 (mount 반영 지연)
+  read-retry:
+    max-attempts: 10
+    sleep-millis: 1000
+
+# 비식별화 동시처리 진행 설정
+anon:
+  worker:
+    enabled: true            # 다중 서버 운영 시 한 서버만 true, 나머지는 false 권장
+    poll-ms: 20000            # 워커가 “처리할 A1 문서가 있나?” 하고 DB를 조회하는 주기(밀리초), 20초마다 selectAnonReady(...)를 실행해서 처리 대상을 가져옴
+    concurrency: 10           # 워커가 동시에 처리할 수 있는 작업 스레드 수(스레드풀 크기), 한 번에 10개까지 “runOne” 작업을 병렬로 실행할 수 있음
+    api-concurrency: 10       # ✅ 실제 비식별화 API 동시 처리 개수(핵심)
+    fetch-limit: 50          # 한 번 poll 할 때 DB에서 “A1 대기 문서”를 최대 몇 건 가져올지, selectAnonReady(fetch-limit) 형태로 사용
+    per-type-limit: 50       # 소스타입별(JGM/STCN 등)로 한 번 poll에서 각 타입당 최대 몇 건 처리할지 제한, JGM에서 1건, STCN에서 1건 → 총 2건을 큐잉할 수도 있음(구현에 따라)
+    # A1R 스테일 회수
+    stale-minutes: 120       # A1R(비식별화 처리중) 상태가 너무 오래 지속될 경우 “죽은 작업”으로 보고 회수할 기준 시간(분), A1R 상태의 DTAC_MDFC_DT가 NOW() - stale-minutes보다 오래되면 reclaimStaleAnonRunning()이 그 문서를 다시 A1로 돌려서 재처리 가능하게 함
+    reclaim-limit: 200
+    reclaim-delay-ms: 30000  # 한 번 reclaim 실행 때 최대 몇 건까지 회수할지 배치 크기
+
+mdtohtml:
+  render-url: "http://10.177.6.242:12345/render_html"
+  timeout-ms: 15000
+
+# 증분 배치 scheduler
+# 추가로 들어오는 문서 전처리 작업
+document:
+  dispatch:
+    batch:
+      enabled: true
+      zone: Asia/Seoul
+
+      jgm-cron: "0 0 1 * * *"      # 매일 01:00
+      stcn-cron: "0 0 2 * * *"     # 매일 02:00
+      xtnljg-cron: "0 0 3 * * *"   # 매일 03:00
+      othrs-cron: "0 0 4 * * *"    # 매일 04:00
+
+      jgm-enabled: true
+      stcn-enabled: true
+      xtnljg-enabled: true
+      othrs-enabled: true
+
+
+
+increment-dump:
+  enabled: true
+
+  # [외부망(maruai)] 증분 SQL 생성/송신용 로컬 경로
+  # /api/increment-dump/today 실행 시: ${base-dir}/yyyyMMdd/yyyyMMdd.sql 생성
+  base-dir: /nasdata/ai/search/increment_documents/send
+
+  # [내부망(homeai)] 증분 SQL 수신용 로컬 경로
+  # /api/increment-dump/receive/today 실행 시: ${recv-base-dir}/yyyyMMdd/yyyyMMdd.sql 로 GET 수신
+  recv-base-dir: /nasdata/ai/search/increment_documents/recv
+
+  target-date-format: yyyyMMdd
+
+  # 스케줄러 실행일 기준 -1일 조회
+  # 예: 2026-06-08 실행 → 2026-06-07 00:00:00 ~ 2026-06-08 00:00:00 조회
+  query-day-offset: -1
+
+  # [process1~process4 자동 스케줄러 설정]
+  # 수동 API는 그대로 사용 가능하며, 아래 enabled 값으로 자동 실행만 on/off 한다.
+  scheduler:
+    enabled: true
+    zone: Asia/Seoul
+    process1-enabled: true
+    process1-cron: "0 0 2 * * *"   # 02:00 외부망 -> 외부망 파일연계시스템: OTHRS dump/PUT
+    process2-enabled: true
+    process2-cron: "0 5 2 * * *"   # 02:05 외부망 파일연계시스템 -> 내부망: OTHRS GET/UPSERT
+    process3-enabled: true
+    process3-cron: "0 10 2 * * *"  # 02:10 내부망 -> 내부망 파일연계시스템: SQL/결과파일 패키지 PUT
+    process4-enabled: true
+    process4-cron: "0 15 2 * * *"  # 02:15 내부망 파일연계시스템 -> 외부망: 패키지 GET/UPSERT/파일 이동
+
+  # [send/recv/전송 산출물 권한 보정]
+  # Java 프로세스 실행 계정이 chown 권한(root 또는 sudo 없이 chown 가능한 계정)을 가져야 owner/group 변경이 성공한다.
+  # preprocess를 dnlis 계정으로 실행하는 운영에서는 파일/폴더가 dnlis 소유로 생성되므로
+  # process1~process4에서 별도 chown/chmod 명령을 실행하지 않도록 비활성화한다.
+  # 필요 시 enabled=true로 바꾸면 기존 권한 보정 로직(chown/chmod)을 다시 사용할 수 있다.
+  file-permission:
+    enabled: false
+    owner: dnlis
+    group: dnlis
+    mode: "755"
+    timeout-seconds: 60
+    fail-on-error: false
+
+  # [외부망(maruai) -> 외부망(maruai) 파일연계시스템] PUT 송신 설정
+  # 실행 흐름: /api/increment-dump/today 호출 -> yyyyMMdd.sql 생성 -> fcp2_batch PUT 실행
+  # 운영 위치: 외부망(maruai) 서버에서 enabled=true 사용
+  fcp2-batch-transfer:
+    enabled: true
+    command: /opt/JionLab/fcp2_batch
+    password-file: /opt/JionLab/.passwd_file_maruai_homeai
+    command-path: /opt/JionLab
+    server: IA_SVR_FI:10.180.40.140:7776
+    remote-dir: /home/DATA/Outbound/maruai_homeai
+    log-file: /var/log/JionLab/fcp2_batch_put.log
+    err-file: /var/log/JionLab/fcp2_batch_put.err
+    remove-source: false
+    timeout-seconds: 60
+
+  # [내부망(homeai) <- 외부망(maruai) 파일연계시스템] GET 수신 설정
+  # 실행 흐름: /api/increment-dump/receive/today 호출 -> fcp2_batch GET -> recv/yyyyMMdd/yyyyMMdd.sql 저장
+  # 운영 위치: 내부망(homeai) 서버에서 enabled=true 사용
+  fcp2-batch-receive:
+    enabled: true
+    command: /opt/JionLab/fcp2_batch
+    password-file: /opt/JionLab/.passwd_file_maruai_homeai
+    command-path: /opt/JionLab
+    server: IA_SVR_FI:10.180.158.142:7776,IA_SVR_FI:10.180.158.143:7776
+    remote-dir: /home/DATA/Inbound/maruai_homeai
+    log-file: /var/log/JionLab/fcp2_batch_get.log
+    err-file: /var/log/JionLab/fcp2_batch_get.err
+    remove-source: true
+    timeout-seconds: 60
+
+  # [내부망(homeai)] 수신한 yyyyMMdd.sql을 현재 spring.datasource DB에 반영
+  # 실행 흐름: /api/increment-dump/receive/today 호출 -> GET 수신 성공 -> recv/yyyyMMdd/yyyyMMdd.sql 실행
+  # SQL 파일은 INSERT ... ON DUPLICATE KEY UPDATE 형태이므로 PK 충돌 시 UPDATE 처리됨
+  sql-import:
+    enabled: true
+
+  # [내부망(homeai) -> 내부망(maruai) 파일연계시스템] 전처리 완료 증분 패키지 생성/PUT 설정
+  # 실행 흐름: /api/increment-dump/internal-send/today 호출
+  # -> send/yyyyMMdd/yyyyMMdd.sql 생성
+  # -> output_decision/output_judgment/output_others/others/masked_documents 복사
+  # -> send/yyyyMMdd.tar.gz 생성 (압축 대상 send/yyyyMMdd 폴더 밖에 생성)
+  # -> fcp2_batch PUT 실행
+  internal-send:
+    enabled: true
+    base-dir: /nasdata/ai/search/increment_documents/send
+    preprocess-base-dir: /nasdata/ai/search/index_preprocess
+    decision-output-dir: /nasdata/ai/search/index_preprocess/output_decision
+    judgment-output-dir: /nasdata/ai/search/index_preprocess/output_judgment
+    othrs-original-dir: /nasdata/ai/search/index_preprocess/others
+    othrs-output-dir: /nasdata/ai/search/index_preprocess/output_others
+    masked-documents-dir: /nasdata/ai/search/masked_documents
+    overwrite-work-dir: false
+    continue-on-copy-error: true
+    fcp2-batch-transfer:
+      enabled: true
+      command: /opt/JionLab/fcp2_batch
+      password-file: /opt/JionLab/.passwd_file_homeai_maruai
+      command-path: /opt/JionLab
+      server: IA_SVR_FI:10.180.158.140:7776
+      remote-dir: /home/DATA/Outbound/homeai_maruai
+      log-file: /var/log/JionLab/fcp2_batch_put.log
+      err-file: /var/log/JionLab/fcp2_batch_put.err
+      remove-source: true
+      timeout-seconds: 300
+
+  # [내부망 파일연계시스템 -> 외부망(maruai)] 전처리 완료 증분 패키지 수신/압축해제/DB UPSERT/파일 이동 설정
+  # 실행 흐름: /api/increment-dump/internal-receive/today 호출
+  # -> recv/yyyyMMdd 폴더 생성
+  # -> fcp2_batch GET으로 yyyyMMdd.tar.gz 수신
+  # -> recv/yyyyMMdd 아래 압축해제
+  # -> yyyyMMdd.sql DB UPSERT
+  # -> output_decision/output_judgment/output_others/others/masked_documents를 외부망 NAS 경로로 이동
+  internal-receive:
+    enabled: true
+    base-dir: /nasdata/ai/search/increment_documents/recv
+    decision-output-dir: /nasdata/ai/search/index_preprocess/output_decision
+    judgment-output-dir: /nasdata/ai/search/index_preprocess/output_judgment
+    othrs-output-dir: /nasdata/ai/search/index_preprocess/output_others
+    othrs-original-dir: /nasdata/ai/search/index_preprocess/others
+    masked-documents-dir: /nasdata/ai/search/masked_documents
+    overwrite-work-dir: false
+    overwrite-existing: true
+    continue-on-move-error: false
+    fcp2-batch-receive:
+      enabled: true
+      command: /opt/JionLab/fcp2_batch
+      password-file: /opt/JionLab/.passwd_file_homeai_maruai
+      command-path: /opt/JionLab
+      server: IA_SVR_FI:10.180.40.144:7776,IA_SVR_FI:10.180.40.145:7776
+      remote-dir: /home/DATA/Inbound/homeai_maruai
+      log-file: /var/log/JionLab/fcp2_batch_get.log
+      err-file: /var/log/JionLab/fcp2_batch_get.err
+      remove-source: true
+      timeout-seconds: 300
+
+  targets:
+    - name: jgm
+      enabled: false
+      table-name: JGM_DOC_INFO
+      primary-key-column: JGM_DOC_ID
+      created-date-column: DTAC_CRT_DT
+      modified-date-column: DTAC_MDFC_DT
+
+    - name: stcn
+      enabled: false
+      table-name: STCN_INFO
+      primary-key-column: STCN_DOC_ID
+      created-date-column: DTAC_CRT_DT
+      modified-date-column: DTAC_MDFC_DT
+
+    - name: othrs
+      enabled: true
+      table-name: OTHRS_DOC_INFO
+      primary-key-column: OTHRS_ID
+      created-date-column: DTAC_CRT_DT
+      modified-date-column: DTAC_MDFC_DT
+
+
+
+# [내부망 -> 외부망 전송 준비] OCR/Parser 결과 폴더 선별 복사
+# decision: JGM_DOC_INFO의 DC + 연도 조건 기준 JOB_ID만 복사
+# investigation: JGM_DOC_INFO의 IV + 연도 조건 기준 JOB_ID만 복사
+# others: OTHRS_DOC_INFO의 USE_YN='Y' 전체 + OTHRS_CRT_DT 연도 기준 JOB_ID만 복사
+# target에 동일 JOB_ID 폴더가 있으면 삭제하지 않고 스킵한다.
+result-artifact-copy:
+  enabled: true
+  base-dir: /nasdata/ai/search/index_preprocess
+  decision:
+    source-dir: /nasdata/ai/search/index_preprocess/output_decision
+    target-dir: /nasdata/ai/search/index_preprocess/mv_output_decision
+  investigation:
+    source-dir: /nasdata/ai/search/index_preprocess/output_investigation
+    target-dir: /nasdata/ai/search/index_preprocess/mv_output_investigation
+  others:
+    source-dir: /nasdata/ai/search/index_preprocess/output_others
+    target-dir: /nasdata/ai/search/index_preprocess/mv_output_others

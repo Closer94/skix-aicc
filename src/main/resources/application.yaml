@@ -1,0 +1,39 @@
+server:
+  port: 8282
+
+spring:
+  application:
+    name: datapreprocess
+
+  datasource:
+    url: jdbc:mariadb://localhost:3306/skix?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Seoul
+    username: root      # 실제 계정application-local.yaml
+    password: saltlux123!  # 실제 비번
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      validation-timeout: 3000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      keep-alive-time: 300000
+      leak-detection-threshold: 60000
+      connection-test-query: SELECT 1
+
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.skix.datapreprocess.zendesk.dto
+  configuration:
+    map-underscore-to-camel-case: true
+
+zendesk:
+  base-url: https://skmagic.zendesk.com
+  username: mp2607041@skmagic.com
+  api-token: GHvJ1LW5iF8Tkdo24Bq97lLf6KaUQLxuBkm7Bj6d
+  per-page: 50
+
+faq:
+  import-directory: ${FAQ_IMPORT_DIRECTORY:./data/faq}
+  file-pattern: ${FAQ_FILE_PATTERN:서비스센터*많이하는질문*데이터 추출_20260723.xlsx}
+  batch-size: ${FAQ_IMPORT_BATCH_SIZE:50}

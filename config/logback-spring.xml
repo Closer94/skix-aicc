@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true" scanPeriod="60 seconds">
+
+    <!-- ========================= -->
+    <!-- LOG PATH -->
+    <!-- ========================= -->
+    <property name="LOG_PATH" value="/data/logs/preprocess"/>
+    <property name="LOG_ARCHIVE_PATH" value="/data/logs/preprocess/archive"/>
+
+    <!-- ========================= -->
+    <!-- LOG PATTERN -->
+    <!-- ========================= -->
+    <property name="LOG_PATTERN"
+              value="[%d{yyyy-MM-dd HH:mm:ss}][%-5level][%thread][%logger{36}] %msg%n"/>
+
+
+    <!-- ========================= -->
+    <!-- CONSOLE APPENDER -->
+    <!-- ========================= -->
+    <appender name="CONSOLE"
+              class="ch.qos.logback.core.ConsoleAppender">
+
+        <encoder>
+            <pattern>
+                %d{yyyy-MM-dd HH:mm:ss} [%-5level] [%thread] [%logger{36}] - %msg%n
+            </pattern>
+        </encoder>
+
+    </appender>
+
+
+    <!-- ========================= -->
+    <!-- APP LOG -->
+    <!-- ========================= -->
+    <appender name="APP_FILE"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+
+        <file>${LOG_PATH}/app.log</file>
+
+        <rollingPolicy
+                class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+
+            <fileNamePattern>
+                ${LOG_ARCHIVE_PATH}/app-%d{yyyy-MM-dd}.%i.log.gz
+            </fileNamePattern>
+
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>90</maxHistory>
+            <totalSizeCap>50GB</totalSizeCap>
+
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+
+    </appender>
+
+
+    <!-- ========================= -->
+    <!-- ERROR LOG -->
+    <!-- ========================= -->
+    <appender name="ERROR_FILE"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+
+        <file>${LOG_PATH}/error.log</file>
+
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+
+        <rollingPolicy
+                class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+
+            <fileNamePattern>
+                ${LOG_ARCHIVE_PATH}/error-%d{yyyy-MM-dd}.%i.log.gz
+            </fileNamePattern>
+
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>180</maxHistory>
+
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+        </encoder>
+
+    </appender>
+
+
+    <!-- ========================= -->
+    <!-- ASYNC APPENDER -->
+    <!-- ========================= -->
+    <appender name="ASYNC_APP"
+              class="ch.qos.logback.classic.AsyncAppender">
+
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+
+        <appender-ref ref="APP_FILE"/>
+
+    </appender>
+
+
+    <!-- ========================= -->
+    <!-- HIKARI LOG -->
+    <!-- ========================= -->
+    <logger name="com.zaxxer.hikari"
+            level="ERROR"
+            additivity="false">
+
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+
+    </logger>
+
+
+    <!-- ========================= -->
+    <!-- PROJECT LOGGER -->
+    <!-- ========================= -->
+    <logger name="com.saltlux.datapreprocess"
+            level="INFO"
+            additivity="false">
+
+        <appender-ref ref="ASYNC_APP"/>
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+
+    </logger>
+
+
+    <!-- ========================= -->
+    <!-- SPRING PROFILE : DEV -->
+    <!-- ========================= -->
+    <springProfile name="dev">
+
+        <root level="DEBUG">
+            <appender-ref ref="ASYNC_APP"/>
+            <appender-ref ref="ERROR_FILE"/>
+            <appender-ref ref="CONSOLE"/>
+        </root>
+
+    </springProfile>
+
+
+    <!-- ========================= -->
+    <!-- SPRING PROFILE : PROD -->
+    <!-- ========================= -->
+    <springProfile name="prod">
+
+        <root level="INFO">
+            <appender-ref ref="ASYNC_APP"/>
+            <appender-ref ref="ERROR_FILE"/>
+        </root>
+
+    </springProfile>
+
+</configuration>

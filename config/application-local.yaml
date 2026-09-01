@@ -1,0 +1,17 @@
+
+spring:
+  datasource:
+    url: jdbc:mariadb://localhost:3306/skix?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Seoul
+    username: root      # 실제 계정application-local.yaml
+    password: saltlux123!  # 실제 비번
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20          # 여유 있으면 20~30
+      minimum-idle: 5
+      connection-timeout: 30000
+      validation-timeout: 3000
+      idle-timeout: 600000           # 10분
+      max-lifetime: 1800000          # 30분 (★ 핵심)
+      keep-alive-time: 300000              # 보통 끄는 쪽 권장(필요 시만)
+      leak-detection-threshold: 60000 # 60초 (커넥션 leak 추적)
+      connection-test-query: SELECT 1

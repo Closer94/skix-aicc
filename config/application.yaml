@@ -1,0 +1,29 @@
+server:
+  port: 8282
+
+spring:
+  application:
+    name: datapreprocess
+  codec:
+    max-in-memory-size: 10MB
+
+#logging:
+#  config: ./config/logback-spring.xml
+
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.skix.datapreprocess.zendesk.dto
+  configuration:
+    map-underscore-to-camel-case: true
+
+zendesk:
+  base-url: ${ZENDESK_BASE_URL:https://skmagic.zendesk.com}
+  username: ${ZENDESK_USERNAME:mp2607041@skmagic.com/token}
+  api-token: ${ZENDESK_API_TOKEN:GHvJ1LW5iF8Tkdo24Bq97lLf6KaUQLxuBkm7Bj6d}
+  per-page: ${ZENDESK_PER_PAGE:50}
+
+faq:
+  import-directory: ${FAQ_IMPORT_DIRECTORY:./data/faq}
+  file-pattern: ${FAQ_FILE_PATTERN:서비스센터*많이하는질문*데이터 추출_20260723.xlsx}
+  batch-size: ${FAQ_IMPORT_BATCH_SIZE:50}
+

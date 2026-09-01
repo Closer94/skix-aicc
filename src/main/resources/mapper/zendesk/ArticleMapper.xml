@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.skix.datapreprocess.zendesk.mapper.ArticleMapper">
+
+    <select id="selectActiveSections"
+            resultType="com.skix.datapreprocess.zendesk.dto.CategorySection">
+        SELECT category_id,
+               category_name,
+               section_id,
+               section_name
+        FROM categories_sections
+        WHERE use_yn = 'Y'
+        ORDER BY category_position ASC,
+                 section_position ASC
+    </select>
+
+    <insert id="upsertArticles">
+        INSERT INTO articles (
+            article_id, category_id, category_name, section_id, section_name, title, body, url, html_url,
+            author_id, locale, source_locale, draft, promoted, position, label_names, content_tag_ids,
+            user_segment_id, user_segment_ids, permission_group_id, comments_disabled, vote_count, vote_sum,
+            created_at, updated_at, edited_at, outdated, outdated_locales, INDEX_REQUEST
+        ) VALUES
+        <foreach collection="articles" item="article" separator=",">
+            (
+                #{article.articleId}, #{article.categoryId}, #{article.categoryName}, #{article.sectionId},
+                #{article.sectionName}, #{article.title}, #{article.body}, #{article.url}, #{article.htmlUrl},
+                #{article.authorId}, #{article.locale}, #{article.sourceLocale}, #{article.draft},
+                #{article.promoted}, #{article.position}, #{article.labelNames}, #{article.contentTagIds},
+                #{article.userSegmentId}, #{article.userSegmentIds}, #{article.permissionGroupId},
+                #{article.commentsDisabled}, #{article.voteCount}, #{article.voteSum}, #{article.createdAt},
+                #{article.updatedAt}, #{article.editedAt}, #{article.outdated}, #{article.outdatedLocales}, 'INSERT'
+            )
+        </foreach>
+        ON DUPLICATE KEY UPDATE
+            category_id = VALUES(category_id),
+            category_name = VALUES(category_name),
+            section_id = VALUES(section_id),
+            section_name = VALUES(section_name),
+            title = VALUES(title),
+            body = VALUES(body),
+            url = VALUES(url),
+            html_url = VALUES(html_url),
+            author_id = VALUES(author_id),
+            locale = VALUES(locale),
+            source_locale = VALUES(source_locale),
+            draft = VALUES(draft),
+            promoted = VALUES(promoted),
+            position = VALUES(position),
+            label_names = VALUES(label_names),
+            content_tag_ids = VALUES(content_tag_ids),
+            user_segment_id = VALUES(user_segment_id),
+            user_segment_ids = VALUES(user_segment_ids),
+            permission_group_id = VALUES(permission_group_id),
+            comments_disabled = VALUES(comments_disabled),
+            vote_count = VALUES(vote_count),
+            vote_sum = VALUES(vote_sum),
+            created_at = VALUES(created_at),
+            updated_at = VALUES(updated_at),
+            edited_at = VALUES(edited_at),
+            outdated = VALUES(outdated),
+            outdated_locales = VALUES(outdated_locales),
+            INDEX_REQUEST = 'UPDATE'
+    </insert>
+
+    <select id="selectArticleBodies"
+            resultType="com.skix.datapreprocess.zendesk.dto.ArticleBodyDto">
+        SELECT article_id,
+               body
+        FROM articles
+        WHERE article_id &gt; #{afterArticleId}
+        <if test="!reprocess">
+            AND processed_text IS NULL
+        </if>
+        ORDER BY article_id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="updateProcessedTexts">
+        UPDATE articles
+        SET processed_text = CASE article_id
+            <foreach collection="articles" item="article">
+                WHEN #{article.articleId} THEN #{article.processedText}
+            </foreach>
+            END
+        WHERE article_id IN
+        <foreach collection="articles" item="article" open="(" separator="," close=")">
+            #{article.articleId}
+        </foreach>
+    </update>
+</mapper>

@@ -1,0 +1,155 @@
+spring:
+  datasource:
+    url: jdbc:mariadb://211.109.9.106:3306/dnlis?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Seoul
+    username: saltlux      # 실제 계정
+    password: saltlux123!  # 실제 비번
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20          # 여유 있으면 20~30
+      minimum-idle: 5
+      connection-timeout: 30000
+      validation-timeout: 3000
+      idle-timeout: 600000           # 10분
+      max-lifetime: 1800000          # 30분 (★ 핵심)
+      keep-alive-time: 300000              # 보통 끄는 쪽 권장(필요 시만)
+      leak-detection-threshold: 60000 # 60초 (커넥션 leak 추적)
+      connection-test-query: SELECT 1
+
+logging:
+  level:
+    root: INFO
+
+# 외부판례
+precedent:
+  external-dir: /data/dnlis/index_preprocess/externalPrecedent
+
+# OCR, Doc-Parser API 호출 URL 정의
+nlrc:
+  auth:
+    bearer-token: lwf-123491bd72e0408bbdf13c7aff75f833
+  ocr:
+    url: http://211.109.9.106:8051/api/flow/nlrc-api-ocr
+    callback-url: http://211.109.9.106:8282/documents/nlrc-api-ocr-callback
+  doc-parser:
+    url: http://211.109.9.106:8051/api/flow/nlrc-api-doc-parser
+    callback-url: http://211.109.9.106:8282/documents/nlrc-api-doc-parser-callback
+  anonymization:
+    url: http://211.109.9.106:8051/api/flow/nlrc-api-text-anonymization
+    enabled: true
+    timeout-ms: 1800000
+    target-doc-ty-cds: [ "IV", "DC", "JG" ]
+    connect-timeout-ms: 3000
+    read-timeout-ms: 1800000   # 예: 2분
+    # retry/backoff
+    retry-max-attempts: 3
+    retry-backoff-initial-ms: 1000
+    retry-backoff-max-ms: 10000
+    request-delay-ms: 500   # 0.5초 (페이싱 : 비식별화 API 보낼 때 속도 조절)
+  anonymization-detect:
+    url: http://211.109.9.106:8051/api/flow/nlrc-api-text-anonymization-is-detected
+    timeout-ms: 30000
+
+  doc-file-anonymization:
+    enabled: true
+    url: http://211.109.9.106:8051/api/flow/nlrc-api-doc-anonymization
+    callback-url: http://211.109.9.106:8282/documents/nlrc-api-doc-anonymization-callback
+    input-base-path: /data/dnl_ai/index_preprocess   # 현재 로직에서는 미사용(하위호환용 유지)
+    masked-base-path: /data/dnl_ai/masked_documents
+    timeout-ms: 600000
+
+# OCR, Doc-Parser 결과를 저장하는 폴더 접근
+preprocess:
+  mount:
+    # H100 서버에서 실제 파일이 존재하는 기준 경로 (API request에 사용)
+    remote-base: /data/dnl_ai/index_preprocess
+
+    # 106 서버에서 H100 remote-base를 마운트한 로컬 경로 (파일 read에 사용)
+    local-base: /data/dnlis/index_preprocess
+    # 문서유형별 하위 폴더명(상대경로)만 관리 (remote/local 공통)
+  decision:
+    output-subdir: output_decision
+  investigation:
+    output-subdir: output_investigation
+  judgment:
+    output-subdir: output_judgment
+  externalPrecedent:
+    output-subdir: output_externalPrecedent
+  others:
+    output-subdir: output_others
+    original-file-copy:
+      enabled: false
+      target-dir: /nasdata/ai/search/index_preprocess/others
+      # ALL: 전체 파일 복사 / pdf: PDF만 복사 / pdf, hwpx: PDF와 HWPX만 복사
+      file-types: pdf
+postprocess:
+  # Doc-Parser 결과물 생성 지연 대비 (mount 반영 지연)
+  read-retry:
+    max-attempts: 10
+    sleep-millis: 1000
+
+# 비식별화 동시처리 진행 설정
+anon:
+  worker:
+    poll-ms: 10000            # 워커가 “처리할 A1 문서가 있나?” 하고 DB를 조회하는 주기(밀리초), 10초마다 selectAnonReady(...)를 실행해서 처리 대상을 가져옴
+    concurrency: 10           # 워커가 동시에 처리할 수 있는 작업 스레드 수(스레드풀 크기), 한 번에 10개까지 “runOne” 작업을 병렬로 실행할 수 있음
+    api-concurrency: 10       # ✅ 실제 비식별화 API 동시 처리 개수(핵심)
+    fetch-limit: 50          # 한 번 poll 할 때 DB에서 “A1 대기 문서”를 최대 몇 건 가져올지, selectAnonReady(fetch-limit) 형태로 사용
+    per-type-limit: 50       # 소스타입별(JGM/STCN 등)로 한 번 poll에서 각 타입당 최대 몇 건 처리할지 제한, JGM에서 1건, STCN에서 1건 → 총 2건을 큐잉할 수도 있음(구현에 따라)
+    # A1R 스테일 회수
+    stale-minutes: 120       # A1R(비식별화 처리중) 상태가 너무 오래 지속될 경우 “죽은 작업”으로 보고 회수할 기준 시간(분), A1R 상태의 DTAC_MDFC_DT가 NOW() - stale-minutes보다 오래되면 reclaimStaleAnonRunning()이 그 문서를 다시 A1로 돌려서 재처리 가능하게 함
+    reclaim-limit: 200
+    reclaim-delay-ms: 30000  # 한 번 reclaim 실행 때 최대 몇 건까지 회수할지 배치 크기
+
+mdtohtml:
+  render-url: "http://172.16.100.200:12345/render_html"
+  timeout-ms: 15000
+
+# 증분 배치 scheduler
+# 추가로 들어오는 문서 전처리 작업
+document:
+  dispatch:
+    batch:
+      enabled: true
+      zone: Asia/Seoul
+
+      jgm-cron: "0 0 1 * * *"      # 매일 01:00
+      stcn-cron: "0 0 2 * * *"     # 매일 02:00
+      xtnljg-cron: "0 0 3 * * *"   # 매일 03:00
+      othrs-cron: "0 0 4 * * *"    # 매일 04:00
+
+      jgm-enabled: true
+      stcn-enabled: true
+      xtnljg-enabled: true
+      othrs-enabled: true
+
+
+increment-dump:
+  enabled: true
+  base-dir: /data/
+  target-date-format: yyyyMMdd
+
+  # 스케줄러 실행일 기준 -1일 조회
+  # 예: 2026-05-28 실행 → 2026-05-27 00:00:00 ~ 2026-05-28 00:00:00 조회
+  query-day-offset: -1
+
+  targets:
+    - name: jgm
+      enabled: true
+      table-name: JGM_DOC_INFO
+      primary-key-column: JGM_DOC_ID
+      created-date-column: DTAC_CRT_DT
+      modified-date-column: DTAC_MDFC_DT
+
+    - name: stcn
+      enabled: true
+      table-name: STCN_INFO
+      primary-key-column: STCN_DOC_ID
+      created-date-column: DTAC_CRT_DT
+      modified-date-column: DTAC_MDFC_DT
+
+    - name: othrs
+      enabled: true
+      table-name: OTHRS_DOC_INFO
+      primary-key-column: OTHRS_ID
+      created-date-column: DTAC_CRT_DT
+      modified-date-column: DTAC_MDFC_DT
