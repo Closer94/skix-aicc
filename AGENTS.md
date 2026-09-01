@@ -130,6 +130,12 @@ git push
 
 이 프로젝트는 Codex 작업 중 언제든 이전 정상 상태로 돌아갈 수 있도록 **Checkpoint 기반으로 개발한다.**
 
+Checkpoint는 대화 단위로 생성하지 않는다.
+
+컴파일과 관련 테스트를 통과하고 사용자가 정상 동작을 확인한 시점에 생성한다.
+
+테스트가 실패했거나 검증이 완료되지 않은 상태에는 checkpoint를 생성하지 않는다.
+
 권장 흐름:
 
 ```text
@@ -150,22 +156,21 @@ main
        └── ...
 ```
 
-중요한 Codex 작업을 시작하기 전에 사용자가 정상 상태를 commit하는 것을 기본 원칙으로 한다.
+중요한 Codex 작업을 시작하기 전에 마지막 정상 상태가 commit되어 있는지 확인하는 것을 기본 원칙으로 한다.
 
 예:
 
 ```bash
-git add .
-git commit -m "checkpoint: 검색 API 정상 동작"
+git add <변경한 파일>
+git commit -m "feat: 검색 API 구현"
 ```
 
-그 이후 Codex 작업을 수행한다.
+기능 구현 commit과 검증 완료 checkpoint는 구분한다.
 
-작업이 정상적으로 완료되면 사용자가 검토 후 다음 checkpoint를 생성한다.
+작업이 정상적으로 완료되고 사용자가 검토한 후 필요하면 checkpoint를 생성한다.
 
 ```bash
-git add .
-git commit -m "checkpoint: Elasticsearch 검색 기능 정상 동작"
+git commit --allow-empty -m "checkpoint: 검색 API 정상 동작"
 ```
 
 Codex는 기존 checkpoint를 임의로 변경하거나 삭제하지 않는다.
@@ -205,7 +210,11 @@ git push
 
 일반적인 개발 통합 브랜치이다.
 
-새로운 기능 개발 및 수정은 기본적으로 `develop` 또는 사용자가 지정한 작업 브랜치에서 수행한다.
+검증된 개발 결과를 통합하며, 원칙적으로 `develop`에서 직접 코드를 수정하지 않는다.
+
+코드 변경 작업은 `develop`에서 분기한 `feature/*` 또는 `fix/*` 브랜치에서 수행한다.
+
+단, 사용자가 특정 브랜치에서 작업하도록 명시적으로 요청한 경우는 예외로 한다.
 
 ## feature branch
 
@@ -232,6 +241,16 @@ fix/search-query
 fix/indexing-error
 fix/preprocessing-null
 ```
+
+## 실패 작업 복구
+
+이미 commit 또는 push된 실패 작업은 `reset`이나 강제 push로 이력을 삭제하지 않는다.
+
+공유 브랜치에 반영된 실패 작업은 `git revert`로 취소한다.
+
+미커밋 변경을 되돌려야 할 때는 사용자 변경과 Codex 변경을 먼저 구분한다.
+
+사용자 변경이 섞여 있다면 임의로 `restore`하지 않고 사용자에게 보고한다.
 
 ---
 
